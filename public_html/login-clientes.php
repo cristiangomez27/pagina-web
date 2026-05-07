@@ -92,6 +92,7 @@ require __DIR__ . '/includes/web_header.php';
                 <input type="password" name="password" placeholder="Tu contraseña" required autocomplete="current-password">
             </label>
             <button class="btn btn--gold btn--wide" type="submit">Entrar</button>
+            <a href="/recuperar-password">¿Olvidaste tu contraseña?</a>
         </form>
     </article>
 
