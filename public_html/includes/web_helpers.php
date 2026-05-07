@@ -648,3 +648,69 @@ function sw_client_update_profile(string $id, array $input): array { $nombre=tri
   $cs=sw_client_load_all(); foreach($cs as &$c){ if((string)($c['id']??'')!==$id) continue; $c['nombre']=$nombre;$c['whatsapp']=$whatsapp;$c['direccion']=$direccion; break;} unset($c); if(!sw_client_save_all($cs)) return ['ok'=>false,'errores'=>['general'=>'No se pudieron guardar los cambios.']]; return ['ok'=>true,'cliente'=>sw_client_current()]; }
 function sw_client_load_orders(array $cliente): array { $f=sw_client_orders_file(); if(!is_file($f)) return []; $j=json_decode((string)@file_get_contents($f),true); return is_array($j)?$j:[]; }
 function sw_client_prefill_script(?array $cliente = null): string { $cliente=$cliente?:sw_client_current(); if(!$cliente) return ''; $payload=['nombre'=>(string)($cliente['nombre']??''),'telefono'=>(string)($cliente['whatsapp']??''),'correo'=>(string)($cliente['correo']??''),'direccion'=>(string)($cliente['direccion']??'')]; return '<script>try{localStorage.setItem("suaveurban_customer_clean_v1", '.json_encode(json_encode($payload), JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).');}catch(e){}</script>'; }
+
+/* ===== FAVORITOS WEB (DB-FIRST) ===== */
+function sw_fav_product_exists(int $productId): bool {
+    if ($productId <= 0) return false;
+    $pdo = function_exists('sw_web_db_pdo') ? sw_web_db_pdo() : null;
+    if (!$pdo) return false;
+    try {
+        $st = $pdo->prepare('SELECT id FROM web_productos WHERE id=:id AND activo=1 LIMIT 1');
+        $st->execute([':id' => $productId]);
+        return (bool)$st->fetchColumn();
+    } catch (Throwable $e) {
+        error_log('[suave-fav] exists: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function sw_fav_list_for_client(int $clientId): array {
+    if ($clientId <= 0) return [];
+    $pdo = function_exists('sw_web_db_pdo') ? sw_web_db_pdo() : null;
+    if (!$pdo) return [];
+    try {
+        $sql = 'SELECT f.producto_id AS id, p.nombre AS name, COALESCE(NULLIF(p.precio_oferta,0), p.precio, 0) AS price, p.imagen_principal AS image, p.slug FROM web_favoritos f INNER JOIN web_productos p ON p.id=f.producto_id WHERE f.cliente_id=:cid AND p.activo=1 ORDER BY f.id DESC';
+        $st = $pdo->prepare($sql);
+        $st->execute([':cid' => $clientId]);
+        $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        return array_map(function($r){
+            $id = (int)($r['id'] ?? 0);
+            return [
+                'id' => (string)$id,
+                'name' => (string)($r['name'] ?? 'Producto'),
+                'price' => (float)($r['price'] ?? 0),
+                'image' => sw_public_asset_url((string)($r['image'] ?? '')),
+                'url' => '/producto/' . $id . '-' . sw_slug((string)($r['slug'] ?? 'producto')),
+            ];
+        }, $rows);
+    } catch (Throwable $e) {
+        error_log('[suave-fav] list: ' . $e->getMessage());
+        return [];
+    }
+}
+
+function sw_fav_add(int $clientId, int $productId): bool {
+    if ($clientId <= 0 || $productId <= 0) return false;
+    $pdo = function_exists('sw_web_db_pdo') ? sw_web_db_pdo() : null;
+    if (!$pdo) return false;
+    try {
+        $st = $pdo->prepare('INSERT INTO web_favoritos (cliente_id, producto_id, created_at, updated_at) VALUES (:cid,:pid,NOW(),NOW()) ON DUPLICATE KEY UPDATE updated_at=NOW()');
+        return $st->execute([':cid' => $clientId, ':pid' => $productId]);
+    } catch (Throwable $e) {
+        error_log('[suave-fav] add: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function sw_fav_remove(int $clientId, int $productId): bool {
+    if ($clientId <= 0 || $productId <= 0) return false;
+    $pdo = function_exists('sw_web_db_pdo') ? sw_web_db_pdo() : null;
+    if (!$pdo) return false;
+    try {
+        $st = $pdo->prepare('DELETE FROM web_favoritos WHERE cliente_id=:cid AND producto_id=:pid');
+        return $st->execute([':cid' => $clientId, ':pid' => $productId]);
+    } catch (Throwable $e) {
+        error_log('[suave-fav] remove: ' . $e->getMessage());
+        return false;
+    }
+}

@@ -62,7 +62,7 @@ $clienteActual = function_exists('sw_client_current') ? sw_client_current() : nu
         }
     </style>
 </head>
-<body>
+<body data-web-client-logged="<?= $clienteActual ? '1' : '0' ?>">
 <div class="site-bg" aria-hidden="true"></div>
 <header class="site-header">
     <a class="brand" href="/">
