@@ -4,7 +4,9 @@
   const FAV_KEY = "suaveurban_favs_clean_v1";
   const CUSTOMER_KEY = "suaveurban_customer_clean_v1";
   const WEB_CUSTOMER_UID_KEY = "suaveurban_customer_uid_v1";
-  const WEB_ORDER_ENDPOINT = "/ventas/api/web/crear_orden.php";
+  const WEB_ORDER_ENDPOINT = "/api/web/crear_orden.php";
+  const CART_API = "/api/web/carrito.php";
+  const isLoggedClient = () => document.body && document.body.dataset.webClientLogged === "1";
   const WEB_FAV_ENDPOINT = "/api/web/favoritos.php";
 
   const $all = (s, root = document) => Array.from(root.querySelectorAll(s));
@@ -126,8 +128,13 @@
     const found = cart.find(x => String(x.id) === item.id && String(x.size || "") === item.size && String(x.color || "") === item.color);
     if (found) found.qty = Math.min(99, Number(found.qty || 1) + item.qty);
     else cart.push(item);
-    setCart(cart);
-    if (redirect) {
+    if (isLoggedClient()) {
+      fetch(CART_API, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: Number(item.id || 0), qty: item.qty || 1, size: item.size || "", color: item.color || "" }) })
+      .then(r=>r.json()).then(j=>{ if (j && j.ok && Array.isArray(j.items)) write(CART_KEY, j.items); updateBadges(); renderCartPage(); if (redirect) window.location.href = "/carrito"; });
+    } else {
+      setCart(cart);
+    }
+    if (redirect && !isLoggedClient()) {
       window.location.href = "/carrito";
       return true;
     }
@@ -217,7 +224,7 @@
     }
 
     const currentPage = window.location.pathname || "";
-    const endpoint = "/ventas/api/web/crear_orden.php";
+    const endpoint = "/api/web/crear_orden.php";
     const payload = {
       origen: "web_publica",
       cliente: {
@@ -235,7 +242,7 @@
     console.log("Checkout payload:", payload);
 
     try {
-      const response = await fetch('/ventas/api/web/crear_orden.php', {
+      const response = await fetch('/api/web/crear_orden.php', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -436,7 +443,12 @@ ${url}`);
         toast("Producto eliminado.");
       } else if (plus) cart[index].qty = Math.min(99, Number(cart[index].qty || 1) + 1);
       else if (minus) cart[index].qty = Math.max(1, Number(cart[index].qty || 1) - 1);
+      if (isLoggedClient()) {
+      fetch(CART_API, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: Number(item.id || 0), qty: item.qty || 1, size: item.size || "", color: item.color || "" }) })
+      .then(r=>r.json()).then(j=>{ if (j && j.ok && Array.isArray(j.items)) write(CART_KEY, j.items); updateBadges(); renderCartPage(); if (redirect) window.location.href = "/carrito"; });
+    } else {
       setCart(cart);
+    }
     }
 
     const clear = ev.target.closest("[data-cart-clear]");
@@ -492,7 +504,12 @@ ${url}`);
       const index = Number(qty.dataset.cartQty);
       if (cart[index]) {
         cart[index].qty = Math.max(1, Math.min(99, Number(qty.value || 1)));
-        setCart(cart);
+        if (isLoggedClient()) {
+      fetch(CART_API, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: Number(item.id || 0), qty: item.qty || 1, size: item.size || "", color: item.color || "" }) })
+      .then(r=>r.json()).then(j=>{ if (j && j.ok && Array.isArray(j.items)) write(CART_KEY, j.items); updateBadges(); renderCartPage(); if (redirect) window.location.href = "/carrito"; });
+    } else {
+      setCart(cart);
+    }
       }
     }
 
