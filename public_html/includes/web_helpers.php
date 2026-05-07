@@ -611,208 +611,40 @@ function sw_category_card(array $c): string {
 
 
 /* ===== CLIENTES WEB - REGISTRO / LOGIN / MI CUENTA ===== */
-function sw_client_session_start(): void {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        @session_start();
-    }
-}
-
-function sw_client_data_file(): string {
-    return __DIR__ . '/../ventas/configuracion_web/data/clientes_web.json';
-}
-
-function sw_client_orders_file(): string {
-    return __DIR__ . '/../ventas/configuracion_web/data/pedidos_web.json';
-}
-
-function sw_client_data_dir(): string {
-    return dirname(sw_client_data_file());
-}
-
-function sw_client_make_dir(): void {
-    $dir = sw_client_data_dir();
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0775, true);
-    }
-}
-
-function sw_client_email(string $email): string {
-    return strtolower(trim($email));
-}
-
-function sw_client_phone(string $phone): string {
-    return preg_replace('/\D+/', '', $phone) ?: '';
-}
-
-function sw_client_load_all(): array {
-    $file = sw_client_data_file();
-    if (!is_file($file)) return [];
-    $json = json_decode((string)@file_get_contents($file), true);
-    if (!is_array($json)) return [];
-    return array_values(array_filter($json, 'is_array'));
-}
-
-function sw_client_save_all(array $clientes): bool {
-    sw_client_make_dir();
-    $file = sw_client_data_file();
-    $payload = json_encode(array_values($clientes), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($payload)) return false;
-    return @file_put_contents($file, $payload . PHP_EOL, LOCK_EX) !== false;
-}
-
+function sw_client_session_start(): void { if (session_status() !== PHP_SESSION_ACTIVE) { @session_start(); } }
+function sw_client_csrf_token(string $form): string { sw_client_session_start(); $k='sw_csrf_'.$form; if (empty($_SESSION[$k])) $_SESSION[$k]=bin2hex(random_bytes(32)); return (string)$_SESSION[$k]; }
+function sw_client_check_csrf(string $form, ?string $token): bool { sw_client_session_start(); return $token !== null && $token !== '' && hash_equals((string)($_SESSION['sw_csrf_'.$form] ?? ''), (string)$token); }
+function sw_client_data_file(): string { return __DIR__ . '/../data/clientes_web.json'; }
+function sw_client_orders_file(): string { return __DIR__ . '/../data/pedidos_web.json'; }
+function sw_client_data_dir(): string { return dirname(sw_client_data_file()); }
+function sw_client_make_dir(): void { if (!is_dir(sw_client_data_dir())) @mkdir(sw_client_data_dir(), 0775, true); }
+function sw_client_email(string $email): string { return strtolower(trim($email)); }
+function sw_client_phone(string $phone): string { return preg_replace('/\D+/', '', $phone) ?: ''; }
+function sw_client_db(): ?PDO { return function_exists('sw_web_db_pdo') ? sw_web_db_pdo() : null; }
+function sw_client_load_all(): array { $f=sw_client_data_file(); if(!is_file($f)) return []; $j=json_decode((string)@file_get_contents($f), true); return is_array($j)?array_values(array_filter($j,'is_array')):[]; }
+function sw_client_save_all(array $c): bool { sw_client_make_dir(); $f=sw_client_data_file(); $p=json_encode(array_values($c), JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); return is_string($p) && @file_put_contents($f,$p.PHP_EOL,LOCK_EX)!==false; }
+function sw_client_public(array $c): array { return ['id'=>(string)($c['id']??''),'nombre'=>(string)($c['nombre']??''),'correo'=>(string)($c['correo']??''),'whatsapp'=>(string)($c['whatsapp']??$c['telefono']??''),'telefono'=>(string)($c['whatsapp']??$c['telefono']??''),'direccion'=>(string)($c['direccion']??''),'estado'=>(string)($c['estado']??'activo')]; }
 function sw_client_find_by_email(string $email): ?array {
-    $email = sw_client_email($email);
-    if ($email === '') return null;
-    foreach (sw_client_load_all() as $cliente) {
-        if (sw_client_email((string)($cliente['correo'] ?? '')) === $email) return $cliente;
-    }
-    return null;
-}
-
+  $email=sw_client_email($email); if($email==='') return null; $pdo=sw_client_db();
+  if($pdo){ try{$st=$pdo->prepare('SELECT * FROM web_clientes WHERE email=:e LIMIT 1');$st->execute([':e'=>$email]);$r=$st->fetch(PDO::FETCH_ASSOC); if($r){return ['id'=>$r['id'],'nombre'=>$r['nombre'],'correo'=>$r['email'],'whatsapp'=>$r['telefono'],'password_hash'=>$r['password_hash'],'estado'=>((int)($r['activo']??1)===1?'activo':'inactivo')];}}catch(Throwable $e){error_log('[suave-client] find email db: '.$e->getMessage());}}
+  foreach(sw_client_load_all() as $c){ if(sw_client_email((string)($c['correo']??''))===$email) return $c; } return null; }
 function sw_client_find_by_id(string $id): ?array {
-    $id = trim($id);
-    if ($id === '') return null;
-    foreach (sw_client_load_all() as $cliente) {
-        if ((string)($cliente['id'] ?? '') === $id) return $cliente;
-    }
-    return null;
-}
-
-function sw_client_public(array $cliente): array {
-    return [
-        'id' => (string)($cliente['id'] ?? ''),
-        'nombre' => (string)($cliente['nombre'] ?? ''),
-        'correo' => (string)($cliente['correo'] ?? ''),
-        'whatsapp' => (string)($cliente['whatsapp'] ?? ''),
-        'telefono' => (string)($cliente['whatsapp'] ?? $cliente['telefono'] ?? ''),
-        'direccion' => (string)($cliente['direccion'] ?? ''),
-        'fecha_registro' => (string)($cliente['fecha_registro'] ?? ''),
-        'origen' => (string)($cliente['origen'] ?? 'web_publica'),
-        'estado' => (string)($cliente['estado'] ?? 'activo'),
-    ];
-}
-
-function sw_client_current(): ?array {
-    sw_client_session_start();
-    $id = (string)($_SESSION['suave_cliente_id'] ?? '');
-    if ($id === '') return null;
-    $cliente = sw_client_find_by_id($id);
-    return $cliente ? sw_client_public($cliente) : null;
-}
-
-function sw_client_login(array $cliente): void {
-    sw_client_session_start();
-    session_regenerate_id(true);
-    $_SESSION['suave_cliente_id'] = (string)($cliente['id'] ?? '');
-}
-
-function sw_client_logout(): void {
-    sw_client_session_start();
-    unset($_SESSION['suave_cliente_id']);
-}
-
+  $id=trim($id); if($id==='') return null; $pdo=sw_client_db();
+  if($pdo){ try{$st=$pdo->prepare('SELECT * FROM web_clientes WHERE id=:id LIMIT 1');$st->execute([':id'=>$id]);$r=$st->fetch(PDO::FETCH_ASSOC); if($r){$d=''; $st2=$pdo->prepare('SELECT calle,numero_ext,numero_int,colonia,ciudad,estado,codigo_postal,pais,referencia FROM web_direcciones WHERE cliente_id=:id AND es_predeterminada=1 ORDER BY id DESC LIMIT 1');$st2->execute([':id'=>$id]); if($a=$st2->fetch(PDO::FETCH_ASSOC)){$d=trim(implode(', ',array_filter([$a['calle']??'', $a['numero_ext']??'', $a['numero_int']??'', $a['colonia']??'', $a['ciudad']??'', $a['estado']??'', $a['codigo_postal']??'', $a['pais']??'', $a['referencia']??''])));} return ['id'=>$r['id'],'nombre'=>$r['nombre'],'correo'=>$r['email'],'whatsapp'=>$r['telefono'],'direccion'=>$d,'estado'=>((int)($r['activo']??1)===1?'activo':'inactivo')];}}catch(Throwable $e){error_log('[suave-client] find id db: '.$e->getMessage());}}
+  foreach(sw_client_load_all() as $c){ if((string)($c['id']??'')===$id) return $c; } return null; }
+function sw_client_id(): ?string { sw_client_session_start(); $id=(string)($_SESSION['sw_web_cliente_id']??''); return $id!==''?$id:null; }
+function sw_client_logged_in(): bool { return sw_client_id() !== null && sw_client_current() !== null; }
+function sw_client_current(): ?array { $id=sw_client_id(); if(!$id) return null; $c=sw_client_find_by_id($id); return $c?sw_client_public($c):null; }
+function sw_client_login(array $c): void { sw_client_session_start(); session_regenerate_id(true); $_SESSION['sw_web_cliente_id']=(string)($c['id']??''); }
+function sw_client_logout(): void { sw_client_session_start(); unset($_SESSION['sw_web_cliente_id']); }
 function sw_client_register(array $input): array {
-    $nombre = trim((string)($input['nombre'] ?? ''));
-    $correo = sw_client_email((string)($input['correo'] ?? ''));
-    $whatsapp = sw_client_phone((string)($input['whatsapp'] ?? $input['telefono'] ?? ''));
-    $password = (string)($input['password'] ?? '');
-    $direccion = trim((string)($input['direccion'] ?? ''));
-
-    $errores = [];
-    if ($nombre === '') $errores['nombre'] = 'Escribe tu nombre.';
-    if ($correo === '' || !filter_var($correo, FILTER_VALIDATE_EMAIL)) $errores['correo'] = 'Escribe un correo válido.';
-    if ($whatsapp === '' || strlen($whatsapp) < 10) $errores['whatsapp'] = 'Escribe un WhatsApp válido.';
-    if (strlen($password) < 6) $errores['password'] = 'La contraseña debe tener mínimo 6 caracteres.';
-    if ($correo !== '' && sw_client_find_by_email($correo)) $errores['correo'] = 'Ese correo ya está registrado.';
-    if ($errores) return ['ok' => false, 'errores' => $errores];
-
-    $clientes = sw_client_load_all();
-    $cliente = [
-        'id' => 'cli_' . date('YmdHis') . '_' . bin2hex(random_bytes(3)),
-        'nombre' => $nombre,
-        'correo' => $correo,
-        'whatsapp' => $whatsapp,
-        'direccion' => $direccion,
-        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-        'estado' => 'activo',
-        'origen' => 'web_publica',
-        'fecha_registro' => date('Y-m-d H:i:s'),
-        'ultima_actualizacion' => date('Y-m-d H:i:s'),
-    ];
-    $clientes[] = $cliente;
-    if (!sw_client_save_all($clientes)) {
-        return ['ok' => false, 'errores' => ['general' => 'No se pudo guardar el registro. Revisa permisos de la carpeta data.']];
-    }
-    sw_client_login($cliente);
-    return ['ok' => true, 'cliente' => sw_client_public($cliente)];
-}
-
-function sw_client_authenticate(string $correo, string $password): array {
-    $cliente = sw_client_find_by_email($correo);
-    if (!$cliente || (string)($cliente['estado'] ?? 'activo') !== 'activo') {
-        return ['ok' => false, 'error' => 'Correo o contraseña incorrectos.'];
-    }
-    if (!password_verify($password, (string)($cliente['password_hash'] ?? ''))) {
-        return ['ok' => false, 'error' => 'Correo o contraseña incorrectos.'];
-    }
-    sw_client_login($cliente);
-    return ['ok' => true, 'cliente' => sw_client_public($cliente)];
-}
-
-function sw_client_update_profile(string $id, array $input): array {
-    $clientes = sw_client_load_all();
-    $found = false;
-    $errores = [];
-    foreach ($clientes as &$cliente) {
-        if ((string)($cliente['id'] ?? '') !== $id) continue;
-        $found = true;
-        $nombre = trim((string)($input['nombre'] ?? $cliente['nombre'] ?? ''));
-        $whatsapp = sw_client_phone((string)($input['whatsapp'] ?? $cliente['whatsapp'] ?? ''));
-        $direccion = trim((string)($input['direccion'] ?? $cliente['direccion'] ?? ''));
-        if ($nombre === '') $errores['nombre'] = 'Escribe tu nombre.';
-        if ($whatsapp === '' || strlen($whatsapp) < 10) $errores['whatsapp'] = 'Escribe un WhatsApp válido.';
-        if ($errores) break;
-        $cliente['nombre'] = $nombre;
-        $cliente['whatsapp'] = $whatsapp;
-        $cliente['direccion'] = $direccion;
-        $cliente['ultima_actualizacion'] = date('Y-m-d H:i:s');
-        break;
-    }
-    unset($cliente);
-    if (!$found) return ['ok' => false, 'errores' => ['general' => 'Sesión no encontrada.']];
-    if ($errores) return ['ok' => false, 'errores' => $errores];
-    if (!sw_client_save_all($clientes)) return ['ok' => false, 'errores' => ['general' => 'No se pudieron guardar los cambios.']];
-    return ['ok' => true, 'cliente' => sw_client_current()];
-}
-
-function sw_client_load_orders(array $cliente): array {
-    $file = sw_client_orders_file();
-    if (!is_file($file)) return [];
-    $json = json_decode((string)@file_get_contents($file), true);
-    if (!is_array($json)) return [];
-    $email = sw_client_email((string)($cliente['correo'] ?? ''));
-    $phone = sw_client_phone((string)($cliente['whatsapp'] ?? ''));
-    $id = (string)($cliente['id'] ?? '');
-    $orders = [];
-    foreach ($json as $row) {
-        if (!is_array($row)) continue;
-        $matchId = $id !== '' && (string)($row['cliente_id'] ?? '') === $id;
-        $matchEmail = $email !== '' && sw_client_email((string)($row['correo'] ?? $row['cliente_correo'] ?? '')) === $email;
-        $matchPhone = $phone !== '' && sw_client_phone((string)($row['whatsapp'] ?? $row['telefono'] ?? $row['cliente_whatsapp'] ?? '')) === $phone;
-        if ($matchId || $matchEmail || $matchPhone) $orders[] = $row;
-    }
-    usort($orders, fn($a, $b) => strcmp((string)($b['fecha'] ?? $b['creado_en'] ?? ''), (string)($a['fecha'] ?? $a['creado_en'] ?? '')));
-    return $orders;
-}
-
-function sw_client_prefill_script(?array $cliente = null): string {
-    $cliente = $cliente ?: sw_client_current();
-    if (!$cliente) return '';
-    $payload = [
-        'nombre' => (string)($cliente['nombre'] ?? ''),
-        'telefono' => (string)($cliente['whatsapp'] ?? ''),
-        'correo' => (string)($cliente['correo'] ?? ''),
-        'direccion' => (string)($cliente['direccion'] ?? ''),
-    ];
-    return '<script>try{localStorage.setItem("suaveurban_customer_clean_v1", ' . json_encode(json_encode($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ');}catch(e){}</script>';
-}
+  $nombre=trim((string)($input['nombre']??'')); $correo=sw_client_email((string)($input['correo']??'')); $whatsapp=sw_client_phone((string)($input['whatsapp']??$input['telefono']??'')); $password=(string)($input['password']??''); $direccion=trim((string)($input['direccion']??''));
+  $er=[]; if($nombre==='')$er['nombre']='Escribe tu nombre.'; if($correo===''||!filter_var($correo,FILTER_VALIDATE_EMAIL))$er['correo']='Escribe un correo válido.'; if($whatsapp===''||strlen($whatsapp)<10)$er['whatsapp']='Escribe un WhatsApp válido.'; if(strlen($password)<6)$er['password']='La contraseña debe tener mínimo 6 caracteres.'; if(sw_client_find_by_email($correo))$er['correo']='Ese correo ya está registrado.'; if($er) return ['ok'=>false,'errores'=>$er];
+  $pdo=sw_client_db();
+  if($pdo){ try{$st=$pdo->prepare('INSERT INTO web_clientes (nombre,email,telefono,password_hash,activo,created_at,updated_at) VALUES (:n,:e,:t,:p,1,NOW(),NOW())');$st->execute([':n'=>$nombre,':e'=>$correo,':t'=>$whatsapp,':p'=>password_hash($password,PASSWORD_DEFAULT)]); $id=(string)$pdo->lastInsertId(); if($direccion!==''){ $st2=$pdo->prepare('INSERT INTO web_direcciones (cliente_id,nombre_recibe,telefono_recibe,calle,colonia,ciudad,estado,codigo_postal,pais,referencia,es_predeterminada,created_at,updated_at) VALUES (:cid,:nr,:tr,:ca,:co,:ci,:es,:cp,:pa,:re,1,NOW(),NOW())'); $st2->execute([':cid'=>$id,':nr'=>$nombre,':tr'=>$whatsapp,':ca'=>$direccion,':co'=>'',':ci'=>'',':es'=>'',':cp'=>'',':pa'=>'México',':re'=>$direccion]); } $c=['id'=>$id,'nombre'=>$nombre,'correo'=>$correo,'whatsapp'=>$whatsapp,'direccion'=>$direccion]; sw_client_login($c); return ['ok'=>true,'cliente'=>sw_client_public($c)]; }catch(Throwable $e){ error_log('[suave-client] register db: '.$e->getMessage()); }}
+  $clients=sw_client_load_all(); $c=['id'=>'cli_'.date('YmdHis').'_'.bin2hex(random_bytes(3)),'nombre'=>$nombre,'correo'=>$correo,'whatsapp'=>$whatsapp,'direccion'=>$direccion,'password_hash'=>password_hash($password,PASSWORD_DEFAULT),'estado'=>'activo']; $clients[]=$c; if(!sw_client_save_all($clients)) return ['ok'=>false,'errores'=>['general'=>'No se pudo crear la cuenta.']]; sw_client_login($c); return ['ok'=>true,'cliente'=>sw_client_public($c)]; }
+function sw_client_authenticate(string $correo, string $password): array { $c=sw_client_find_by_email($correo); if(!$c || (string)($c['estado']??'activo')!=='activo') return ['ok'=>false,'error'=>'Correo o contraseña incorrectos.']; if(!password_verify($password,(string)($c['password_hash']??''))) return ['ok'=>false,'error'=>'Correo o contraseña incorrectos.']; $pdo=sw_client_db(); if($pdo){ try{$pdo->prepare('UPDATE web_clientes SET ultimo_login_at=NOW(), updated_at=NOW() WHERE id=:id')->execute([':id'=>$c['id']]);}catch(Throwable $e){error_log('[suave-client] last login: '.$e->getMessage());}} sw_client_login($c); return ['ok'=>true,'cliente'=>sw_client_public($c)]; }
+function sw_client_update_profile(string $id, array $input): array { $nombre=trim((string)($input['nombre']??'')); $whatsapp=sw_client_phone((string)($input['whatsapp']??'')); $direccion=trim((string)($input['direccion']??'')); $er=[]; if($nombre==='')$er['nombre']='Escribe tu nombre.'; if($whatsapp===''||strlen($whatsapp)<10)$er['whatsapp']='Escribe un WhatsApp válido.'; if($er)return ['ok'=>false,'errores'=>$er]; $pdo=sw_client_db(); if($pdo){ try{$pdo->prepare('UPDATE web_clientes SET nombre=:n, telefono=:t, updated_at=NOW() WHERE id=:id')->execute([':n'=>$nombre,':t'=>$whatsapp,':id'=>$id]); $st=$pdo->prepare('SELECT id FROM web_direcciones WHERE cliente_id=:id AND es_predeterminada=1 ORDER BY id DESC LIMIT 1'); $st->execute([':id'=>$id]); $addrId=$st->fetchColumn(); if($direccion!==''){ if($addrId){$pdo->prepare('UPDATE web_direcciones SET nombre_recibe=:nr, telefono_recibe=:tr, calle=:ca, referencia=:re, updated_at=NOW() WHERE id=:id')->execute([':nr'=>$nombre,':tr'=>$whatsapp,':ca'=>$direccion,':re'=>$direccion,':id'=>$addrId]);} else {$pdo->prepare('INSERT INTO web_direcciones (cliente_id,nombre_recibe,telefono_recibe,calle,colonia,ciudad,estado,codigo_postal,pais,referencia,es_predeterminada,created_at,updated_at) VALUES (:cid,:nr,:tr,:ca,:co,:ci,:es,:cp,:pa,:re,1,NOW(),NOW())')->execute([':cid'=>$id,':nr'=>$nombre,':tr'=>$whatsapp,':ca'=>$direccion,':co'=>'',':ci'=>'',':es'=>'',':cp'=>'',':pa'=>'México',':re'=>$direccion]);} } return ['ok'=>true,'cliente'=>sw_client_current()]; }catch(Throwable $e){error_log('[suave-client] update db: '.$e->getMessage()); return ['ok'=>false,'errores'=>['general'=>'No se pudieron guardar los cambios.']];}}
+  $cs=sw_client_load_all(); foreach($cs as &$c){ if((string)($c['id']??'')!==$id) continue; $c['nombre']=$nombre;$c['whatsapp']=$whatsapp;$c['direccion']=$direccion; break;} unset($c); if(!sw_client_save_all($cs)) return ['ok'=>false,'errores'=>['general'=>'No se pudieron guardar los cambios.']]; return ['ok'=>true,'cliente'=>sw_client_current()]; }
+function sw_client_load_orders(array $cliente): array { $f=sw_client_orders_file(); if(!is_file($f)) return []; $j=json_decode((string)@file_get_contents($f),true); return is_array($j)?$j:[]; }
+function sw_client_prefill_script(?array $cliente = null): string { $cliente=$cliente?:sw_client_current(); if(!$cliente) return ''; $payload=['nombre'=>(string)($cliente['nombre']??''),'telefono'=>(string)($cliente['whatsapp']??''),'correo'=>(string)($cliente['correo']??''),'direccion'=>(string)($cliente['direccion']??'')]; return '<script>try{localStorage.setItem("suaveurban_customer_clean_v1", '.json_encode(json_encode($payload), JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).');}catch(e){}</script>'; }
